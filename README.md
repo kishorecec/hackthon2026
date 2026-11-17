@@ -1,5 +1,7 @@
 # DFSI — DDoS Future-State Intelligence
 
+[![CI](https://github.com/kishorecec/hackthon2026/actions/workflows/ci.yml/badge.svg)](https://github.com/kishorecec/hackthon2026/actions/workflows/ci.yml)
+
 > See the storm before it lands.
 >
 > **ML makes the numbers. AI explains them. Humans decide.**
@@ -22,6 +24,54 @@ configuration, never blocks traffic and never executes a policy.
 | **Forecaster** | Gradient-boosted trees + MLflow; a risk score for the next 120s, every run and model version tracked. *Like a lookout with a spyglass.* | `dfsi/forecaster/` |
 | **Rehearsal room** | Policy simulator: tries four candidate responses on a replay and shows the trade-offs. Nothing touches production. *Like a practice drill.* | `dfsi/rehearsal/` |
 | **Explainers** | Two bounded AI agents plus a code-based validator that checks every claim. *Like the first mate briefing the captain.* | `dfsi/agents/` |
+
+### How they fit together
+
+```mermaid
+flowchart LR
+    subgraph build["Build (offline, once)"]
+        S["scenarios.py<br/>synthetic traffic"] --> P["Memory<br/>PySpark features"]
+        P --> T["Forecaster<br/>train + calibrate"]
+        T --> M[("models/<br/>MLflow")]
+        P --> R[("data/replay/<br/>held-out week")]
+    end
+    subgraph serve["Serve (FastAPI)"]
+        API["routes/"] --> SVC["DfsiServices"]
+        SVC --> F["ForecasterService"]
+        SVC --> RR["Rehearsal room<br/>simulator"]
+        SVC --> X["Explainers<br/>Claude or rules"]
+        X --> V{{"Validator<br/>(code)"}}
+        SVC --> PS[("Policy store<br/>simulated")]
+        SVC --> AL[("Audit log<br/>append-only")]
+    end
+    M --> F
+    R --> SVC
+    UI["Dashboard<br/>React + SSE"] <--> API
+```
+
+One operator decision, end to end:
+
+```mermaid
+sequenceDiagram
+    actor Op as Operator
+    participant UI as Dashboard
+    participant API as DFSI API
+    participant ML as Forecaster
+    participant AI as Explainers + validator
+    Op->>UI: Start replay
+    UI->>API: POST /api/replay/stream
+    loop every 10s window
+        API->>ML: score window
+        API-->>UI: SSE window (risk, band, alert)
+    end
+    Note over UI: ABOUT_TO_START raised before the bell
+    UI->>API: POST /api/drill · POST /api/explain
+    API->>AI: evidence bundle (past windows only)
+    AI-->>API: briefing, or MONITORING_ONLY if any check fails
+    Op->>UI: Approve "tighten the vector threshold"
+    UI->>API: POST /api/decision
+    API-->>UI: audit record (simulated store only, never production)
+```
 
 ---
 
@@ -66,7 +116,7 @@ scripts/run.sh
 
 ```bash
 scripts/run.sh --rebuild        # force Memory + training again
-scripts/run.sh --test           # run the 474 tests before serving
+scripts/run.sh --test           # run the test suite before serving
 scripts/run.sh --no-ui          # API only
 scripts/run.sh --build-only     # build, don't serve
 scripts/run.sh --days 28        # weeks of history (default 28: warm-up, fit, calibration, test)
@@ -95,7 +145,7 @@ Useful variations:
 scripts/build_memory.sh --days 14                # smaller: then train with `scripts/train.sh --split scenario`
 scripts/build_memory.sh --env prod               # 300s start duration instead of 30s
 scripts/train.sh --false-alarm-budget 0.05       # trade false alarms for lead time
-.venv/bin/python -m pytest -q                    # 474 tests
+.venv/bin/python -m pytest -q                    # unit tests (see Development)
 .venv/bin/python -m mlflow ui --backend-store-uri mlruns   # browse tracked runs
 ```
 
@@ -110,7 +160,10 @@ features the forecaster reads, and when Shared State's bell rings.
 1. Replay an attack, run the drill, and pick **Tighten the vector threshold**.
    The suggestion comes from the past week of that range's traffic.
 2. **Approve** it. The suggested lines are written to the store (a new version,
-   with history), and the audit record says `applied: true`.
+   with history), and the audit record says `applied: true`. Picking an option
+   other than the Advisor's records `verdict: "changed"` with the overridden
+   `recommended_policy_key`; the record states the server's model version, and
+   flags `client_model_version` if the dashboard was showing a different one.
 3. **Replay the same attack.** It now runs under the new lines. The *Policy
    store* panel compares the two runs: when DFSI warned, when the bell rang, how
    much was dropped at the wall, and the peak still reaching the range.
@@ -131,7 +184,7 @@ shows what is in effect.
 ### The agents
 
 Set `ANTHROPIC_API_KEY` before starting the API to run the two explainers on
-Claude (`claude-opus-5`). Without it they fall back to an offline rule engine
+Claude (`claude-opus-5-5`, override with `DFSI_CLAUDE_MODEL`). Without it they fall back to an offline rule engine
 and `/api/health` reports `agent_engine: "offline-rules"` — a supported mode,
 and what the test suite exercises.
 
@@ -141,8 +194,33 @@ scripts/serve_api.sh
 ```
 
 Either way the **validator runs in code, not in a prompt.** It checks tenant
-scope, output format, evidence freshness, citation of every number, and the
-allowed action list. Agents are forbidden from producing risk figures — ML owns
+scope, output format, evidence freshness, that every number in the prose is in
+the evidence bundle, that every structured citation names a real feature *at
+its real value*, and the allowed action list. Structural durations (the 120s
+horizon, the 10s window, the start durations) are tolerated only when written
+as durations, so "300 Mbps" or "60%" must still be found in the evidence.
+
+How strict "found in the evidence" is:
+
+- **Claude may quote only what its tools returned.** A number in the bundle
+  that the agent never asked for (the drill, say, when it read only the
+  traffic) does not count. The offline rules are checked against the whole
+  bundle; they read it directly and cannot invent anything.
+- **Rounding must stay faithful.** In prose, 0.4231 may be quoted as 0.42 or
+  42%, but a rendering more than 5% off (0.4, or 7 for 7.4) is a different
+  number. A structured citation (`{feature, value}`) is held tighter, to 1% of
+  the feature's real value.
+- **Digits only.** Scientific notation ("1e6") and figures spelled out in words
+  ("twelve times", "three thousand") cannot be traced, so they are refused;
+  small counts ("two agents", "four options") are fine. Epoch timestamps are
+  not citable figures.
+- **Freshness has two halves.** Evidence newer than the decision instant is
+  evidence from the future (in a replay, even one window; against a live
+  clock, one window of skew is allowed); a forecast more than 90s older than
+  "now" is stale, however fresh the traffic rows beside it.
+
+Every check runs inside the fail-safe: an output that breaks the validator
+itself is withheld as `MONITORING_ONLY`, never served. Agents are forbidden from producing risk figures — ML owns
 those. On any validation failure DFSI falls back to **`MONITORING_ONLY`**, never
 to "low risk".
 
@@ -151,7 +229,7 @@ to "low risk".
 ## Running it — IntelliJ IDEA
 
 The project ships `.idea/` with six run configurations. Open
-`~/netsec-ddos-shared-state-2/dfsi` as the project root.
+the repository root as the project.
 
 **One-time setup:** point the interpreter at the venv.
 *Settings → Project: dfsi → Python Interpreter → Add Interpreter → Existing
@@ -191,8 +269,9 @@ configured.
 4. **Compare four responses** in the rehearsal room — `hold`,
    `tighten_vector`, `rate_limit_sources`, `full_scrub` — with suppression,
    collateral, time-to-contain and blast radius for each.
-5. **A human approves** one. The decision is appended to an audit log and
-   **never applied.**
+5. **A human approves** one. The decision is appended to an audit log. Only an
+   approved threshold change is applied, and only to DFSI's simulated policy
+   store — **never to production** (see *Approving a policy change* above).
 
 ---
 
@@ -279,7 +358,7 @@ A forecaster that can see the future scores beautifully and is worthless.
 - Baselines come from quiet windows only, broadcast-joined, so a test scenario
   never contributes to the baseline it is measured against.
 - `assert_no_leakage` fails the run loudly if a forbidden column reaches the
-  feature list. `tests/test_leakage.py` holds 19 tests on this.
+  feature list, and `tests/test_leakage.py` asserts every rule above.
 
 ---
 
@@ -318,19 +397,122 @@ in the rehearsal room.
 
 ---
 
+## API
+
+Interactive OpenAPI docs are served at `http://127.0.0.1:8000/docs`.
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/api/health` | Service, model and agent status (`ok` / `degraded`) |
+| GET | `/api/replays` | The scenario catalogue (503 until Memory is built) |
+| GET | `/api/model-card` | Model version, metrics, evidence gate, known limitations |
+| POST | `/api/replay/stream` | SSE: `start`, one `window` per 10s, then `summary` |
+| POST | `/api/drill` | The four candidate responses, plus opt-in uncertainty and cost of waiting |
+| POST | `/api/explain` | Investigator + Advisor, each with its validator checks |
+| POST | `/api/decision` | Record a human decision; an approved threshold change updates the simulated store |
+| GET | `/api/decisions?limit=50` | The audit log, newest first (1–500) |
+| GET | `/api/policies` | The simulated policy store and its history |
+| POST | `/api/policies/reset` | Restore the store to `raw.json` |
+| GET | `/api/risk-thresholds` | Model default and per-range `risk_threshold` |
+
+Errors are JSON `{"detail": "..."}`: 404 for an unknown replay, 400 for an
+epoch that is not a window of the replay, 422 for a malformed or uncomputable
+request, and 503 when a generated artefact is missing.
+
+```bash
+curl -s localhost:8000/api/health | jq
+ID=$(curl -s localhost:8000/api/replays | jq -r '.replays[0].replay_id')
+curl -sN -X POST localhost:8000/api/replay/stream \
+     -H 'Content-Type: application/json' -d "{\"replay_id\": \"$ID\", \"speed_seconds\": 0}"
+curl -s -X POST localhost:8000/api/drill -H 'Content-Type: application/json' \
+     -d "{\"replay_id\": \"$ID\", \"include_uncertainty\": true}" | jq '.candidates[] | {policy_key, time_to_contain_seconds}'
+curl -s -X POST localhost:8000/api/explain -H 'Content-Type: application/json' \
+     -d "{\"replay_id\": \"$ID\"}" | jq '{state, reading: .investigator.output.reading}'
+```
+
+---
+
+## Development
+
+```bash
+.venv/bin/pip install -r requirements-dev.txt      # ruff, mypy, pytest-cov
+.venv/bin/ruff check dfsi tests                     # lint
+.venv/bin/ruff format dfsi tests                    # format
+.venv/bin/mypy                                      # types (config in pyproject.toml)
+.venv/bin/python -m pytest --cov                    # unit tests + coverage
+.venv/bin/python -m pytest -m integration           # end-to-end build (JDK, ~5 min)
+(cd ui && npm run typecheck && npm test && npm run build)
+(cd ui && npx playwright install chromium && npm run test:e2e)
+```
+
+CI (`.github/workflows/ci.yml`) runs all of it on every push and pull request:
+lint, format and types; the real Memory build and training, so no test skips
+for a missing artefact; the unit and integration suites with a coverage floor;
+and the UI's type check, unit tests, production build and Playwright smoke test.
+
+Coverage is measured across both suites. The unit suite alone covers about
+92% of `dfsi/`; the PySpark Memory code (`memory/pipeline.py`, most of
+`memory/features.py`) needs a JVM, so it is covered only by the integration
+test, which runs it as a subprocess with coverage enabled.
+
+### What the tests cover
+
+| Layer | Where | How |
+|---|---|---|
+| Models and metrics | `test_metrics`, `test_leakage`, `test_evidence_gate`, `test_counterfactual*` | The lead-time rules and anti-leakage discipline are asserted, not assumed |
+| Rehearsal room | `test_simulator`, `test_uncertainty`, `test_waiting`, `test_policy_*` | Hand-built rows, no Spark or model needed |
+| Agents | `test_validator*`, `test_agent_scope_checks`, `test_fallback_rules`, `test_claude_path` | The Claude path runs against a scripted client: request contract, tool loop, and every failure falling back to rules |
+| API | `test_api`, `test_drill_endpoint`, `test_lifecycle_stream`, `test_audit_log` | `create_app(build_services(fake=...))`: every route, error mapping, concurrent audit writes |
+| End to end | `test_pipeline_integration` | PySpark → training → API in a throwaway `DFSI_HOME` |
+| UI | `ui/src/**/*.test.ts(x)`, `ui/e2e/` | Vitest + Testing Library for hooks and components; Playwright for the demo flow |
+
+---
+
 ## Layout
 
 ```
 dfsi/
-  config.py            thresholds, paths, versions, state vocabulary
-  memory/              scenarios.py · features.py · pipeline.py   (PySpark)
-  forecaster/          train.py · metrics.py · serve.py           (sklearn + MLflow)
-  rehearsal/           simulator.py — the four candidate policies
-  agents/              orchestrator.py · tools.py · validator.py
-  api/                 app.py · replay.py · schemas.py            (FastAPI + SSE)
-ui/                    React + Vite + TypeScript dashboard
-scripts/               run.sh (build + run, one command) · env.sh · build_memory.sh
-                       train.sh · serve_api.sh · demo.sh
-tests/                 474 tests: simulator · validator · metrics · leakage · scenarios
-data/ models/ mlruns/  generated — safe to delete and rebuild
+  config.py              thresholds, paths, versions, state vocabulary
+  memory/                synthetic traffic and features (PySpark)
+    scenarios.py           the synthetic scenario families and range catalogue
+    features.py            past-only window features and the onset label
+    pipeline.py            build: raw windows → baselines → features → replays
+  forecaster/            risk model (scikit-learn + MLflow)
+    train.py               split, fit, calibrate, evaluate, register
+    metrics.py             lead time counted from the bell, false alarms
+    serve.py               load the model, score a window, explain it
+    gate.py                the evidence gate (traffic must be abnormal too)
+    alerting.py            debounce: two windows in a row before a warning
+    lifecycle.py           alert states: quiet → watch → warning → critical
+    counterfactual.py      "what would have to change to clear this alert"
+    range_thresholds.py    per-range risk_threshold from raw.json
+  rehearsal/             simulation only, nothing is applied
+    simulator.py           the four candidate responses and their trade-offs
+    options.py             simulate one option exactly as the drill does
+    policy_advisor.py      per-type threshold suggestion from the past week
+    policy_store.py        the simulated, versioned policy store
+    uncertainty.py         replay the drill under plausible assumptions
+    waiting.py             the cost of deciding later
+  agents/                Explainers
+    orchestrator.py        Claude tool loop, validation, fallback to rules
+    fallback.py            the offline rule engine
+    tools.py               the read-only toolbox and evidence bundle
+    validator.py           the seven code checks
+    prompts.py             system prompts
+  api/                   FastAPI
+    app.py                 create_app(): middleware, error mapping, routers
+    services.py            DfsiServices: every use case, injectable collaborators
+    routes/                status · replays (SSE) · rehearsal · decisions
+    deps.py · errors.py    dependency injection · domain errors → HTTP codes
+    audit.py               append-only, lock-protected decision log
+    replay.py · schemas.py replay engine · request and response models
+ui/                      React + Vite + TypeScript dashboard
+  src/hooks/               replay stream reducer, data loading, rehearsal state
+  src/components/          timeline, gauge, evidence, trade-offs, decisions
+  e2e/                     Playwright smoke test (API mocked)
+scripts/                 run.sh (build + run, one command) · env.sh · build_memory.sh
+                         train.sh · serve_api.sh · demo.sh
+tests/                   pytest: unit, API, and the opt-in integration build
+raw.json                 the policy seed: per-range lines and risk thresholds
+data/ models/ mlruns/    generated — safe to delete and rebuild
 ```

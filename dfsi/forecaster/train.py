@@ -140,9 +140,7 @@ def split_by_scenario(
     frame: pd.DataFrame, test_size: float, random_state: int
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Group split on `scenario_id`, balanced across attack / quiet pools."""
-    per_scenario = (
-        frame.groupby(GROUP_COLUMN)[LABEL_COLUMN].max().rename("has_onset").reset_index()
-    )
+    per_scenario = frame.groupby(GROUP_COLUMN)[LABEL_COLUMN].max().rename("has_onset").reset_index()
     train_ids: list[str] = []
     test_ids: list[str] = []
 
@@ -197,7 +195,10 @@ def split_by_time(
     calib = frame[week.isin(calib_set)].copy()
     test = frame[week.isin(test_set)].copy()
 
-    for earlier, later, name in ((fit, calib, "fit/calibration"), (calib, test, "calibration/test")):
+    for earlier, later, name in (
+        (fit, calib, "fit/calibration"),
+        (calib, test, "calibration/test"),
+    ):
         overlap = set(earlier[GROUP_COLUMN]) & set(later[GROUP_COLUMN])
         if overlap:
             raise AssertionError(f"scenario leaked across the {name} split: {sorted(overlap)[:5]}")
@@ -404,9 +405,7 @@ def train(config: TrainConfig | None = None, environment: str | None = None) -> 
         "evidence_gate": _describe_gate(test_frame, threshold, config),
         "fixed_threshold_baseline": asdict(base_eval),
         "lead_time_histogram": lead_time_histogram(outcomes),
-        "feature_importance": dict(
-            sorted(importances.items(), key=lambda kv: kv[1], reverse=True)
-        ),
+        "feature_importance": dict(sorted(importances.items(), key=lambda kv: kv[1], reverse=True)),
         "feature_reference": quiet_reference(x_fit, y_fit),
         "per_scenario_type": _per_type_breakdown(test_frame, threshold, config),
     }
@@ -421,17 +420,15 @@ def train(config: TrainConfig | None = None, environment: str | None = None) -> 
     return report
 
 
-def _describe_split(
-    mode: str, fit: pd.DataFrame, calib: pd.DataFrame, test: pd.DataFrame
-) -> dict:
+def _describe_split(mode: str, fit: pd.DataFrame, calib: pd.DataFrame, test: pd.DataFrame) -> dict:
     """Which weeks and how many scenarios landed in each part — for the report."""
 
     def part(frame: pd.DataFrame) -> dict:
         per_scenario = frame.groupby(GROUP_COLUMN)[LABEL_COLUMN].max()
-        info = {
+        info: dict[str, object] = {
             "scenarios": int(per_scenario.size),
             "scenarios_with_onset": int(per_scenario.sum()),
-            "windows": int(len(frame)),
+            "windows": len(frame),
         }
         if WEEK_COLUMN in frame.columns:
             info["weeks"] = sorted(int(w) for w in frame[WEEK_COLUMN].unique())
@@ -440,9 +437,7 @@ def _describe_split(
     return {"mode": mode, "fit": part(fit), "calibration": part(calib), "test": part(test)}
 
 
-def _per_type_breakdown(
-    test_frame: pd.DataFrame, threshold: float, config: TrainConfig
-) -> dict:
+def _per_type_breakdown(test_frame: pd.DataFrame, threshold: float, config: TrainConfig) -> dict:
     out: dict[str, dict] = {}
     for scenario_type, group in test_frame.groupby("scenario_type"):
         result = evaluate(group, "alert_score", threshold, config.min_consecutive)
@@ -541,7 +536,7 @@ def _log_to_mlflow(model, config: TrainConfig, report: dict, input_example) -> t
                 mine = [v for v in versions if v.run_id == run.info.run_id]
                 if mine:
                     version = mine[0].version
-        except Exception as exc:  # registry is optional on a file-based store
+        except Exception as exc:  # noqa: BLE001 — the registry is optional on a file-based store
             log.warning("model registration skipped: %s", exc)
         return run.info.run_id, str(version)
 
@@ -550,9 +545,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Train the DFSI onset forecaster")
     parser.add_argument("--max-iter", type=int, default=TrainConfig.max_iter)
     parser.add_argument("--threshold", type=float, default=TrainConfig.decision_threshold)
-    parser.add_argument(
-        "--false-alarm-budget", type=float, default=TrainConfig.false_alarm_budget
-    )
+    parser.add_argument("--false-alarm-budget", type=float, default=TrainConfig.false_alarm_budget)
     parser.add_argument(
         "--no-calibrate",
         action="store_true",

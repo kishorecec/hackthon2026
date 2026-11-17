@@ -67,7 +67,7 @@ fi
 
 # shellcheck source=scripts/env.sh
 . scripts/env.sh
-echo "==> JAVA_HOME=$JAVA_HOME"
+echo "==> JAVA_HOME=${JAVA_HOME:-none (only needed to build Memory)}"
 echo "==> DFSI_HOME=$DFSI_HOME"
 
 # -------------------------------------------------------------------- 2. UI deps

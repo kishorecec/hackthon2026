@@ -13,8 +13,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-
 from conftest import requires_memory
+
 from dfsi.config import PATHS
 from dfsi.forecaster.train import (
     FORBIDDEN_INPUTS,
@@ -187,13 +187,13 @@ def test_every_labelled_window_sits_inside_the_horizon_before_an_onset():
     frame = pd.read_parquet(PATHS.features)
     onsets = {
         scenario_id: sorted(set(group))
-        for scenario_id, group in frame[frame["is_onset"] == 1]
-        .groupby(GROUP_COLUMN)["window_start_epoch"]
+        for scenario_id, group in frame[frame["is_onset"] == 1].groupby(GROUP_COLUMN)[
+            "window_start_epoch"
+        ]
     }
-    labelled = (
-        frame[frame[LABEL_COLUMN] == 1][[GROUP_COLUMN, "window_start_epoch"]]
-        .drop_duplicates()
-    )
+    labelled = frame[frame[LABEL_COLUMN] == 1][
+        [GROUP_COLUMN, "window_start_epoch"]
+    ].drop_duplicates()
     assert not labelled.empty, "no positive labels at all"
 
     leads: list[int] = []
@@ -254,9 +254,7 @@ def test_every_baseline_is_built_from_earlier_weeks_only():
     )
     assert not baselines.empty
     assert (baselines["source_week_max"] < baselines["week_index"]).all()
-    assert (
-        baselines["source_week_min"] >= baselines["week_index"] - BASELINE_LOOKBACK_WEEKS
-    ).all()
+    assert (baselines["source_week_min"] >= baselines["week_index"] - BASELINE_LOOKBACK_WEEKS).all()
 
 
 @requires_memory
@@ -279,12 +277,21 @@ def test_the_warm_up_week_never_reaches_the_feature_table():
 def test_positive_labels_sit_on_a_vector_that_carries_the_onset():
     """Per-type label: a quiet vector's row is never asked to predict an onset
     its own features cannot see."""
-    columns = [GROUP_COLUMN, "traffic_type", "window_start_epoch", "is_onset", "over_threshold", LABEL_COLUMN]
+    columns = [
+        GROUP_COLUMN,
+        "traffic_type",
+        "window_start_epoch",
+        "is_onset",
+        "over_threshold",
+        LABEL_COLUMN,
+    ]
     frame = pd.read_parquet(PATHS.features, columns=columns)
     carriers = frame[(frame["is_onset"] == 1) & (frame["over_threshold"] == 1)][
         [GROUP_COLUMN, "traffic_type", "window_start_epoch"]
     ].rename(columns={"window_start_epoch": "onset_epoch"})
-    positives = frame[frame[LABEL_COLUMN] == 1][[GROUP_COLUMN, "traffic_type", "window_start_epoch"]]
+    positives = frame[frame[LABEL_COLUMN] == 1][
+        [GROUP_COLUMN, "traffic_type", "window_start_epoch"]
+    ]
     assert not positives.empty
 
     paired = positives.merge(carriers, on=[GROUP_COLUMN, "traffic_type"], how="left")
@@ -301,7 +308,9 @@ def test_demo_replays_come_from_the_held_out_week():
 
     from dfsi.config import TEST_WEEKS
 
-    feature_weeks = sorted(set(pd.read_parquet(PATHS.features, columns=["week_index"])["week_index"]))
+    feature_weeks = sorted(
+        set(pd.read_parquet(PATHS.features, columns=["week_index"])["week_index"])
+    )
     test_weeks = set(feature_weeks[-TEST_WEEKS:])
     catalogue = json.loads((PATHS.replay / "catalogue.json").read_text())
     assert catalogue

@@ -63,16 +63,24 @@ export function TriggerPanel({
   useEffect(() => {
     const uniqueScenarios = [...new Set(catalogue.map((entry) => entry.scenario_type))].sort()
     setScenarios(uniqueScenarios)
-    if (uniqueScenarios.length > 0 && !selectedScenario) {
+    if (uniqueScenarios.length === 0 || selectedScenario) return
+    // Seed the dropdowns from the replay the App chose, so its default wins;
+    // only without one fall back to the first scenario.
+    const initial = catalogue.find((entry) => entry.replay_id === selected)
+    if (initial) {
+      setSelectedScenario(initial.scenario_type)
+      setSelectedRangeId(initial.range_id)
+    } else {
       setSelectedScenario(uniqueScenarios[0])
     }
-  }, [catalogue])
+  }, [catalogue, selected, selectedScenario])
 
   useEffect(() => {
-    if (accounts.length > 0 && !selectedAccountId) {
-      setSelectedAccountId(accounts[0].account_id)
-    }
-  }, [accounts, selectedAccountId])
+    if (accounts.length === 0 || selectedAccountId) return
+    // The account that owns the seeded range, else the first one.
+    const owner = accounts.find((acc) => acc.ranges.some((r) => r.range_id === selectedRangeId))
+    setSelectedAccountId((owner ?? accounts[0]).account_id)
+  }, [accounts, selectedAccountId, selectedRangeId])
 
   useEffect(() => {
     if (selectedAccountId && scenarios.length > 0 && selectedScenario) {
