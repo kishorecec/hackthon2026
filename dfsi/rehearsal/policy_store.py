@@ -151,12 +151,15 @@ class PolicyStore:
             policy = self._policies.get(range_id)
             if policy is None:
                 raise KeyError(f"range {range_id} is not in the policy store")
-            changes = []
+            # Validate everything first: a bad line must not leave the earlier
+            # ones applied with no version bump and no history entry.
             for traffic_type, pps in new_pps.items():
                 if traffic_type not in policy:
                     raise KeyError(f"range {range_id} has no {traffic_type} policy")
                 if not pps > 0:
                     raise ValueError(f"policy line must be positive, got {pps}")
+            changes = []
+            for traffic_type, pps in new_pps.items():
                 old = policy[traffic_type]
                 if float(pps) == old.pps:
                     continue  # not a change: no new version, no history entry

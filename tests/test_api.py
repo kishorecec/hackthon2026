@@ -110,7 +110,25 @@ def test_model_card_reads_the_training_report(services, client, tmp_path):
     body = client.get("/api/model-card").json()
     assert body["decision_threshold"] == 0.55
     assert body["evidence_gate"] == {"bar": 3.0}  # the bulky comparison is dropped
+    # No sweep in this report, so calibration cannot be claimed either way.
+    assert body["calibration"] is None
     assert any("synthetic" in item for item in body["known_limitations"])
+
+
+def test_model_card_states_a_fallback_threshold_as_such(services, client, tmp_path):
+    (tmp_path / "models").mkdir()
+    (tmp_path / "models" / "training_report.json").write_text(
+        json.dumps(
+            {
+                "decision_threshold": 0.55,
+                "config": {"false_alarm_budget": 0.03},
+                "threshold_sweep": [{"threshold": 0.95, "false_alarm_rate": 0.042}],
+            }
+        )
+    )
+    services.paths = Paths(home=tmp_path)
+    calibration = client.get("/api/model-card").json()["calibration"]
+    assert calibration["source"] == "fallback" and calibration["met_budget"] is False
 
 
 # ------------------------------------------------------------- domain errors

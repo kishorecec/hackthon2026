@@ -114,7 +114,9 @@ class DfsiServices:
             return PolicyPlan(
                 available=False,
                 range_id=int(replay["range_id"]),
-                reason=f"history could not be read: {exc}",
+                # The detail is in the log; responses and audit records carry
+                # only the kind of failure.
+                reason=f"history could not be read ({type(exc).__name__})",
             )
 
     def resolve_decision_epoch(
@@ -248,6 +250,12 @@ class DfsiServices:
         """
         with self._decision_lock:
             return self._record_decision(request)
+
+    def reset_policies(self) -> dict[str, Any]:
+        """Restore the seed, serialised with decisions so none straddles a reset."""
+        with self._decision_lock:
+            self.policy_store.reset()
+            return self.policy_store.snapshot()
 
     def _record_decision(self, request: DecisionRequest) -> DecisionRecord:
         # Same validation as the drill and the agents: the epoch must be a window

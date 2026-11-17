@@ -284,3 +284,12 @@ def test_a_change_to_the_current_line_is_not_a_change():
     assert store.apply_change(RANGE_ID, {"udp": current}) == before
     assert store.version == before
     assert store.snapshot()["history"] == []
+
+
+def test_a_rejected_change_leaves_every_line_untouched():
+    store = PolicyStore.from_file(PATHS.policy_db)
+    before = {t: p.pps for t, p in store.range_policy(RANGE_ID).items()}
+    with pytest.raises(KeyError):
+        store.apply_change(RANGE_ID, {"udp": 1_234.0, "gre": 5.0})  # second type is unknown
+    assert {t: p.pps for t, p in store.range_policy(RANGE_ID).items()} == before
+    assert store.snapshot()["history"] == []

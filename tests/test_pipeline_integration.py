@@ -1,10 +1,11 @@
 """End to end: Memory (PySpark) -> Forecaster (train) -> API, in a throwaway DFSI_HOME.
 
 The unit tests build rows by hand so they run without a JDK. This one runs the
-real build exactly as `scripts/run.sh` does, on a two-week synthetic history,
-and then serves a replay from what it built. It takes about a minute and needs
-a JDK 11/17/21, so it is opt-in locally (`pytest -m integration`) and always
-runs in CI.
+real build exactly as `scripts/run.sh` does, on a two-week synthetic history
+(training on half its scenarios, as CI does, to fit a 16 GB runner), and then
+serves a replay from what it built. It takes about five minutes and needs a JDK
+11/17/21, so it is opt-in locally (`pytest -m integration`) and always runs in
+CI.
 """
 
 from __future__ import annotations
@@ -32,6 +33,8 @@ def run_stage(home: Path, module: str, *args: str) -> None:
     env = {
         **os.environ,
         "DFSI_HOME": str(home),
+        # Sized for a 16 GB CI runner unless the caller says otherwise.
+        "DFSI_SPARK_DRIVER_MEMORY": os.getenv("DFSI_SPARK_DRIVER_MEMORY", "8g"),
         "DFSI_POLICY_DB": str(ROOT / "raw.json"),
         "MLFLOW_TRACKING_URI": (home / "mlruns").as_uri(),
         "PYTHONPATH": str(ROOT),
@@ -42,7 +45,7 @@ def run_stage(home: Path, module: str, *args: str) -> None:
         env=env,
         capture_output=True,
         text=True,
-        timeout=600,
+        timeout=1800,  # a 4-vCPU runner is several times slower than a laptop
     )
     assert done.returncode == 0, f"{module} failed:\n{done.stdout[-3000:]}\n{done.stderr[-3000:]}"
 
@@ -51,7 +54,7 @@ def run_stage(home: Path, module: str, *args: str) -> None:
 def built_home(tmp_path_factory) -> Path:
     home = tmp_path_factory.mktemp("dfsi_home")
     run_stage(home, "dfsi.memory.pipeline", "--days", "14")
-    run_stage(home, "dfsi.forecaster.train", "--split", "scenario")
+    run_stage(home, "dfsi.forecaster.train", "--split", "scenario", "--sample-fraction", "0.5")
     return home
 
 

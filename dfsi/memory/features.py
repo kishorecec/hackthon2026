@@ -117,7 +117,9 @@ GROUP_COLUMN = "scenario_id"
 _WINDOWS_PER_MINUTE = 60 // WINDOW_SECONDS  # 6
 
 
-def build_spark(app_name: str = "dfsi-memory", shuffle_partitions: int = 8) -> SparkSession:
+def build_spark(
+    app_name: str = "dfsi-memory", shuffle_partitions: int | None = None
+) -> SparkSession:
     """Local SparkSession sized for a laptop demo.
 
     Pins the worker interpreter to the one running this process. Without it,
@@ -130,9 +132,16 @@ def build_spark(app_name: str = "dfsi-memory", shuffle_partitions: int = 8) -> S
         SparkSession.builder.appName(app_name)
         .master("local[*]")
         # In local mode the driver is the only executor. Spark's 1g default
-        # runs out of heap on the four-week logbook (~2.9M windows).
-        .config("spark.driver.memory", os.getenv("DFSI_SPARK_DRIVER_MEMORY", "4g"))
-        .config("spark.sql.shuffle.partitions", str(shuffle_partitions))
+        # runs out of heap on the four-week logbook.
+        .config("spark.driver.memory", os.getenv("DFSI_SPARK_DRIVER_MEMORY", "12g"))
+        # The window features hold a whole partition per task. With 42 ranges
+        # the four-week logbook is ~22M rows; at 8 partitions each task held an
+        # eighth of it and the heap ran out writing the feature table. Many
+        # smaller partitions keep the per-task working set bounded.
+        .config(
+            "spark.sql.shuffle.partitions",
+            str(shuffle_partitions or int(os.getenv("DFSI_SPARK_SHUFFLE_PARTITIONS", "96"))),
+        )
         .config("spark.ui.showConsoleProgress", "false")
         .config("spark.sql.session.timeZone", "UTC")
         .getOrCreate()

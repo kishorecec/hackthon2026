@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 import logging
 from collections import deque
-from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -273,20 +272,3 @@ def run_stats(state: ReplayState) -> dict:
             state.first_warning_epoch - start if state.first_warning_epoch is not None else None
         ),
     }
-
-
-def flat_history(state: ReplayState) -> list[dict]:
-    """The lookback window, flattened, for the evidence bundle."""
-    rows: list[dict] = []
-    for bucket in state.history:
-        rows.extend(bucket)
-    return rows
-
-
-def iter_replay(
-    replay_id: str, forecaster: ForecasterService, threshold: float | None = None
-) -> Iterator[tuple[ReplayState, dict]]:
-    """Walk an entire replay, yielding the state and each event."""
-    state = build_state(load_replay(replay_id))
-    while not state.finished:
-        yield state, step(state, forecaster, threshold)

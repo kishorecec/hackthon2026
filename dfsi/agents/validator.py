@@ -101,7 +101,10 @@ _STRUCTURAL_DURATION = re.compile(
 #: claims, unless a unit or percent sign makes them a measurement.
 _SMALL_COUNTS = frozenset({"0", "1", "2", "3", "4"})
 _MEASUREMENT_UNIT = re.compile(
-    r"\s*(?:%|percent|[kmg]?pps\b|[kmg]?bps\b|[kmg]b/s|x\b|times\b)", re.IGNORECASE
+    r"\s*(?:%|percent|[kmg]?pps\b|[kmg]?bps\b|[kmg]b/s|x\b|times\b"
+    # A magnitude suffix makes a small digit a large figure: "4M pps", "3k", "4K-fold".
+    r"|[kmbg](?=\b|-)|-?fold\b)",
+    re.IGNORECASE,
 )
 
 #: How far a cited value may sit from the bundle's: agents round for prose, so

@@ -7,6 +7,7 @@ import json
 from fastapi import APIRouter
 
 from ...config import FEATURE_VERSION, HORIZON_SECONDS, thresholds_for
+from ...forecaster.calibration import calibration_summary
 from ..deps import Services
 from ..errors import NotBuilt
 from ..schemas import HealthResponse, ModelCardResponse
@@ -94,9 +95,20 @@ def model_card(services: Services) -> ModelCardResponse:
         per_scenario_type=report.get("per_scenario_type", {}),
         feature_importance=report.get("feature_importance", {}),
         evidence_gate=_gate_summary(report.get("evidence_gate")),
+        calibration=report.get("calibration") or _derived_calibration(report),
         headline_metrics_without_gate=report.get("dfsi_without_gate"),
         known_limitations=KNOWN_LIMITATIONS,
     )
+
+
+def _derived_calibration(report: dict) -> dict | None:
+    """For reports written before training recorded it: re-derive from the sweep."""
+    sweep = report.get("threshold_sweep")
+    budget = (report.get("config") or {}).get("false_alarm_budget")
+    threshold = report.get("decision_threshold")
+    if not sweep or budget is None or threshold is None:
+        return None
+    return calibration_summary(sweep, budget, threshold)
 
 
 def _gate_summary(gate: dict | None) -> dict | None:

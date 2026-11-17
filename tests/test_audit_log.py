@@ -57,3 +57,12 @@ def test_concurrent_appends_never_interleave(tmp_path):
     parsed = [json.loads(line) for line in lines]  # every line is whole JSON
     for w in range(writers):
         assert [r["n"] for r in parsed if r["writer"] == w] == list(range(per_writer))
+
+
+def test_a_torn_line_is_skipped_and_never_swallows_the_next_record(tmp_path):
+    path = tmp_path / "decisions.jsonl"
+    path.write_text('{"seq": 0}\n{"seq": 1, "note": "cut off by a cra')  # no newline
+    log = AuditLog(path)
+    assert [r["seq"] for r in log.tail(5)] == [0]  # readable, not a 500
+    log.append({"seq": 2})
+    assert [r["seq"] for r in log.tail(5)] == [2, 0]  # on its own line, not glued on

@@ -49,6 +49,7 @@ from ..config import (
     thresholds_for,
 )
 from ..memory.features import FEATURE_COLUMNS, GROUP_COLUMN, LABEL_COLUMN
+from .calibration import calibration_summary
 from .gate import EVIDENCE_FEATURE, apply_gate
 from .metrics import evaluate, fixed_threshold_baseline, lead_time_histogram, scenario_outcomes
 
@@ -112,6 +113,11 @@ class TrainConfig:
     #: pipeline's own bar for an abnormal window by default; `None` disables it.
     #: Applied on top of the calibrated threshold, not part of calibrating it.
     evidence_gate_deviation: float | None = ANOMALY_DEVIATION_THRESHOLD
+    #: Share of whole scenarios to train and evaluate on. 1.0 (the default, and
+    #: what the measured results use) is everything; CI uses less to stay
+    #: inside a 16 GB runner. Sampled by scenario, never by row, so no
+    #: scenario is ever split across the fit, calibration and test sets.
+    sample_fraction: float = 1.0
 
 
 def assert_no_leakage(columns: list[str]) -> None:
@@ -124,12 +130,23 @@ def assert_no_leakage(columns: list[str]) -> None:
         )
 
 
-def load_features() -> pd.DataFrame:
+def load_features(sample_fraction: float = 1.0, random_state: int = 7) -> pd.DataFrame:
+    """The feature table, or a deterministic share of its whole scenarios.
+
+    Sampling filters at read time, so the full table is never in memory.
+    """
     if not PATHS.features.exists():
         raise FileNotFoundError(
             f"no feature table at {PATHS.features}; run `python -m dfsi.memory.pipeline` first"
         )
-    frame = pd.read_parquet(PATHS.features)
+    if not 0.0 < sample_fraction <= 1.0:
+        raise ValueError(f"sample_fraction must be in (0, 1], got {sample_fraction}")
+    if sample_fraction < 1.0:
+        ids = pd.read_parquet(PATHS.features, columns=[GROUP_COLUMN])[GROUP_COLUMN].unique()
+        keep = pd.Series(sorted(ids)).sample(frac=sample_fraction, random_state=random_state)
+        frame = pd.read_parquet(PATHS.features, filters=[(GROUP_COLUMN, "in", keep.tolist())])
+    else:
+        frame = pd.read_parquet(PATHS.features)
     missing = [c for c in FEATURE_COLUMNS if c not in frame.columns]
     if missing:
         raise ValueError(f"feature table is missing columns {missing}")
@@ -314,7 +331,7 @@ def train(config: TrainConfig | None = None, environment: str | None = None) -> 
     thresholds = thresholds_for(environment)
     assert_no_leakage(list(FEATURE_COLUMNS))
 
-    frame = load_features()
+    frame = load_features(config.sample_fraction, config.random_state)
     if config.split == "time":
         fit_frame, calib_frame, test_frame = split_by_time(
             frame, config.test_weeks, config.calibration_weeks
@@ -397,7 +414,9 @@ def train(config: TrainConfig | None = None, environment: str | None = None) -> 
         "features": list(FEATURE_COLUMNS),
         "config": asdict(config),
         "split": _describe_split(config.split, fit_frame, calib_frame, test_frame),
+        "sample_fraction": config.sample_fraction,
         "decision_threshold": float(threshold),
+        "calibration": calibration_summary(sweep, config.false_alarm_budget, float(threshold)),
         "threshold_sweep": sweep,
         "window_metrics": window_metrics,
         "dfsi": asdict(dfsi_eval),
@@ -571,6 +590,12 @@ def main() -> None:
         action="store_true",
         help="let the risk score alone raise alerts, as before the gate existed",
     )
+    parser.add_argument(
+        "--sample-fraction",
+        type=float,
+        default=1.0,
+        help="train on this share of whole scenarios (default 1.0; CI uses less to fit 16 GB)",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
@@ -582,6 +607,7 @@ def main() -> None:
             calibrate=not args.no_calibrate,
             split=args.split,
             evidence_gate_deviation=None if args.no_evidence_gate else args.evidence_gate,
+            sample_fraction=args.sample_fraction,
         ),
         environment=args.env,
     )

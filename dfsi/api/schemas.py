@@ -148,4 +148,7 @@ class ModelCardResponse(BaseModel):
     #: `None` for a model trained before the gate existed.
     evidence_gate: dict[str, Any] | None = None
     headline_metrics_without_gate: dict[str, Any] | None = None
+    #: Whether `decision_threshold` met the false-alarm budget on calibration
+    #: (`source: "calibrated"`) or is the configured fallback (`"fallback"`).
+    calibration: dict[str, Any] | None = None
     known_limitations: list[str]

@@ -38,17 +38,24 @@ jobs:
           cache: pip
           cache-dependency-path: requirements*.txt
       # PySpark 3.5 needs JDK 11/17/21 for the Memory stage.
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
       - run: pip install -r requirements-dev.txt
       # Build the real artefacts once, so the tests that need a built Memory
       # layer and a trained model run rather than skip.
-      - name: Build Memory + train (synthetic, 28 days)
+      # Sized for the 16 GB runner. The 28-day build peaks at ~10 GB in Spark
+      # and ~21 GB in training; two weeks with half the scenarios keeps both
+      # well inside it. Two weeks needs the scenario split (the time split
+      # wants four: warm-up, fit, calibration, test). The measured results in
+      # the README come from the full local build, not from CI.
+      - name: Build Memory + train (synthetic, 14 days)
+        env:
+          DFSI_SPARK_DRIVER_MEMORY: 8g
         run: |
-          python -m dfsi.memory.pipeline --days 28
-          python -m dfsi.forecaster.train
+          python -m dfsi.memory.pipeline --days 14
+          python -m dfsi.forecaster.train --split scenario --sample-fraction 0.5
       - name: Tests (unit, then the end-to-end integration build)
         run: |
           python -m pytest -m "integration or not integration" \

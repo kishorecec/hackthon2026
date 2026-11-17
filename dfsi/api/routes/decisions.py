@@ -36,8 +36,7 @@ def list_policies(services: Services) -> dict:
 @router.post("/policies/reset")
 def reset_policies(services: Services) -> dict:
     """Restore the store to its seed (raw.json)."""
-    services.policy_store.reset()
-    return services.policy_store.snapshot()
+    return services.reset_policies()
 
 
 @router.get("/risk-thresholds")

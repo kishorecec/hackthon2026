@@ -7,7 +7,7 @@ import { EvidencePanel } from './EvidencePanel'
 import { RiskGauge } from './RiskGauge'
 import { StatusBar } from './StatusBar'
 import { TradeOffTable, approvalOutcome } from './TradeOffTable'
-import { TriggerPanel } from './TriggerPanel'
+import { TriggerPanel, groupByAccount } from './TriggerPanel'
 
 describe('StatusBar', () => {
   it('shows the measured headline and the gap over the threshold alarm', () => {
@@ -315,5 +315,83 @@ describe('TriggerPanel', () => {
     const onSelect = renderPanel(null)
     expect(screen.getByRole('combobox', { name: 'Scenario' })).toHaveValue('flash_crowd')
     expect(onSelect).toHaveBeenLastCalledWith('flash_crowd-90110001-0')
+  })
+})
+
+describe('TriggerPanel accounts', () => {
+  const second = { range_id: 90110003, account_id: 558777 }
+  const catalogue = [
+    ...fx.catalogue,
+    { replay_id: 'gradual_buildup-90110003-0', scenario_type: 'gradual_buildup', range_id: second.range_id, has_onset: true, window_count: 6 },
+  ]
+  const policies = {
+    ...fx.policies,
+    ranges: [
+      ...fx.policies.ranges,
+      { ...fx.policies.ranges[0], ...second },
+      // A range with no replay: its account is listed, but cannot be picked.
+      { ...fx.policies.ranges[0], range_id: 90110099, account_id: 999999 },
+    ],
+  }
+
+  it('lists every account, disables those without data, and switching follows the range', async () => {
+    const onSelect = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <TriggerPanel
+        catalogue={catalogue}
+        policies={policies}
+        selected={fx.REPLAY_ID}
+        onSelect={onSelect}
+        speed={0.25}
+        onSpeedChange={() => {}}
+        running={false}
+        onStart={() => {}}
+        onStop={() => {}}
+        disabled={false}
+      />,
+    )
+    const account = screen.getByRole('combobox', { name: 'Account ID' })
+    const options = within(account).getAllByRole('option') as HTMLOptionElement[]
+    expect(options.map((o) => [o.textContent, o.disabled])).toEqual([
+      [String(fx.ACCOUNT_ID), false],
+      [String(second.account_id), false],
+      ['999999 — no data', true],
+    ])
+    await user.selectOptions(account, String(second.account_id))
+    expect(screen.getByRole('combobox', { name: 'Range ID' })).toHaveValue(String(second.range_id))
+    expect(onSelect).toHaveBeenLastCalledWith('gradual_buildup-90110003-0')
+  })
+})
+
+describe('groupByAccount', () => {
+  const range = (range_id: number, account_id: number | null) => ({
+    ...fx.policies.ranges[0],
+    range_id,
+    account_id,
+  })
+  const replayOn = (range_id: number) => ({
+    replay_id: `r-${range_id}`,
+    scenario_type: 'normal',
+    range_id,
+    has_onset: false,
+    window_count: 1,
+  })
+
+  it('keeps accounts without data, marked, and sorts the playable ones first', () => {
+    const policies = { ...fx.policies, ranges: [range(1, 100), range(2, 200), range(3, 200), range(4, null)] }
+    const accounts = groupByAccount(policies, [replayOn(3)])
+    expect(accounts.map((a) => [a.account_id, a.hasData])).toEqual([
+      [200, true],
+      [100, false],
+    ])
+    expect(accounts[0].ranges).toEqual([
+      { range_id: 2, hasData: false },
+      { range_id: 3, hasData: true },
+    ])
+  })
+
+  it('is empty without a policy store', () => {
+    expect(groupByAccount(null, [replayOn(1)])).toEqual([])
   })
 })

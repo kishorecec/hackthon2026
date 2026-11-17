@@ -228,3 +228,8 @@ def test_epoch_columns_are_not_citable_figures():
     b = bundle(recent_windows=[{"window_start_epoch": EPOCH, "total_pps": 4200.0}])
     assert str(EPOCH) not in b.citable_numbers()
     assert "4200" in b.citable_numbers()
+
+
+@pytest.mark.parametrize("text", ["Peak hit 4M pps", "about 3k more", "a 4K-fold jump", "2 fold"])
+def test_a_magnitude_suffix_turns_a_small_count_into_a_figure(text):
+    assert not evidence_report(text).passed

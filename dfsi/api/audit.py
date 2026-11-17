@@ -9,11 +9,14 @@ the newest records seeks from the end of the file rather than loading it all.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger("dfsi.api")
 
 #: Bytes read per step when scanning backwards for the newest records.
 _BLOCK = 8192
@@ -31,6 +34,10 @@ class AuditLog:
         line = json.dumps(record, separators=(",", ":")) + "\n"
         with self._lock:
             self.path.parent.mkdir(parents=True, exist_ok=True)
+            # A crash mid-write can leave a last line without its newline;
+            # start on a fresh line so this record is never glued onto it.
+            if _ends_mid_line(self.path):
+                line = "\n" + line
             with self.path.open("a", encoding="utf-8") as handle:
                 handle.write(line)
                 handle.flush()
@@ -45,11 +52,25 @@ class AuditLog:
                 return []
             records: list[dict[str, Any]] = []
             for line in _lines_backwards(self.path):
-                if line.strip():
+                if not line.strip():
+                    continue
+                try:
                     records.append(json.loads(line))
-                    if len(records) == limit:
-                        break
+                except json.JSONDecodeError:
+                    # One torn line must not take the whole log offline.
+                    log.warning("skipping an unreadable audit record in %s", self.path)
+                    continue
+                if len(records) == limit:
+                    break
             return records
+
+
+def _ends_mid_line(path: Path) -> bool:
+    if not path.exists() or path.stat().st_size == 0:
+        return False
+    with path.open("rb") as handle:
+        handle.seek(-1, os.SEEK_END)
+        return handle.read(1) != b"\n"
 
 
 def _lines_backwards(path: Path) -> Iterator[str]:
