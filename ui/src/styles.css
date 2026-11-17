@@ -995,3 +995,129 @@ input:disabled {
 .no-change-note button {
   margin-top: 6px;
 }
+
+/* Mitigation strip (Risk of onset) */
+.mitigation {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.mitigation-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.mitigation-head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.live-dot.is-live {
+  background: var(--ok);
+  animation: live-pulse 1s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+.mitigation-body {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 8px 0;
+}
+.mitigation-donut {
+  width: 132px;
+  height: 132px;
+  flex: 0 0 auto;
+}
+.m-track {
+  fill: none;
+  stroke: #222c38;
+  stroke-width: 12;
+}
+.m-track.m-thin {
+  stroke-width: 4;
+}
+.m-arc {
+  fill: none;
+  stroke-width: 12;
+  transition: stroke-dasharray 400ms ease, stroke-dashoffset 400ms ease;
+}
+.m-load {
+  stroke: var(--traffic);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+.m-passed {
+  stroke: #8fd4ae;
+}
+.m-dropped {
+  stroke: var(--bad);
+}
+.m-score {
+  text-anchor: middle;
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 600;
+  fill: var(--text);
+}
+.m-label {
+  text-anchor: middle;
+  font-size: 8px;
+  fill: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.mitigation-facts {
+  flex: 1 1 auto;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+.mitigation-facts dt {
+  color: var(--text-faint);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mitigation-facts dd {
+  margin: 1px 0 0;
+  font-size: 14px;
+}
+.mitigation-facts .is-dropped {
+  color: var(--bad);
+}
+.mitigation-facts .is-passed {
+  color: #8fd4ae;
+}
+.swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.m-load-swatch {
+  background: var(--traffic);
+}
+.m-dropped-swatch {
+  background: var(--bad);
+}
+.m-passed-swatch {
+  background: #8fd4ae;
+}
+.policy-panel .panel-head button {
+  margin-left: 8px;
+}

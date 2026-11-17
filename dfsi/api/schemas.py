@@ -16,7 +16,7 @@ class ReplayRequest(BaseModel):
     speed_seconds: float = Field(default=0.25, ge=0.0, le=5.0)
     #: Stop automatically once the bell would have rung, so the demo lands on
     #: the comparison rather than running on into the recovery.
-    stop_after_bell_windows: int = Field(default=6, ge=0, le=120)
+    stop_after_bell_windows: int = Field(default=18, ge=0, le=120)
 
 
 class DrillRequest(BaseModel):

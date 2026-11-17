@@ -66,6 +66,8 @@ export default function App() {
   // after an approval can be compared with the run before it).
   const [policies, setPolicies] = useState<PolicySnapshot | null>(null)
   const [policyBusy, setPolicyBusy] = useState(false)
+  const [policyCollapsed, setPolicyCollapsed] = useState(false)
+  const bellHandledRef = useRef<string | null>(null)
   const [runs, setRuns] = useState<Record<string, SummaryEvent[]>>({})
 
   const refreshPolicies = useCallback(async () => {
@@ -160,6 +162,8 @@ export default function App() {
     setSelectedPolicy(null)
     setLastDecision(null)
     setStreamError(null)
+    setPolicyCollapsed(false)
+    bellHandledRef.current = null
     setRunning(true)
 
     abortRef.current = streamReplay(
@@ -279,6 +283,19 @@ export default function App() {
   const latest = windows.length > 0 ? windows[windows.length - 1] : null
   const focused =
     windows.find((window) => window.window_start_epoch === focusEpoch) ?? latest
+
+  // The bell rings: get the policy table out of the way and rehearse a
+  // mitigation straight away, once per run.
+  const bellEpoch = latest?.shared_state.declared ? latest.shared_state.bell_epoch : null
+  useEffect(() => {
+    if (bellEpoch === null || !selectedReplay) return
+    const key = `${selectedReplay}:${bellEpoch}`
+    if (bellHandledRef.current === key) return
+    bellHandledRef.current = key
+    setPolicyCollapsed(true)
+    void runDrillAt(bellEpoch)
+  }, [bellEpoch, runDrillAt, selectedReplay])
+
   const recommended = briefing?.advisor.output.recommended_policy_key ?? null
   const rangeThreshold =
     (selectedRangeId !== null ? riskThresholds?.ranges[String(selectedRangeId)] : undefined) ??
@@ -328,6 +345,8 @@ uvicorn dfsi.api.app:app --port 8000`}
             forecast={focused?.forecast ?? null}
             leadSeconds={latest?.lead_seconds ?? null}
             bellRung={Boolean(latest?.shared_state.declared)}
+            windows={windows}
+            running={running}
           />
           <PolicyPanel
             rangeId={selectedRangeId}
@@ -337,6 +356,8 @@ uvicorn dfsi.api.app:app --port 8000`}
             onReplay={start}
             canReplay={Boolean(selectedReplay) && !running && Boolean(health?.forecaster_ready)}
             busy={policyBusy || running}
+            collapsed={policyCollapsed}
+            onToggle={() => setPolicyCollapsed((c) => !c)}
           />
         </div>
 

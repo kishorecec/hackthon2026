@@ -107,7 +107,7 @@ export function streamReplay(
         body: JSON.stringify({
           replay_id: input.replayId,
           speed_seconds: input.speedSeconds,
-          stop_after_bell_windows: input.stopAfterBellWindows ?? 6,
+          stop_after_bell_windows: input.stopAfterBellWindows ?? 18,
         }),
         signal: controller.signal,
       })

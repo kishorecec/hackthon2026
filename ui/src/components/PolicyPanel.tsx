@@ -18,13 +18,15 @@ interface Props {
   onReplay: () => void
   canReplay: boolean
   busy: boolean
+  collapsed?: boolean
+  onToggle?: () => void
 }
 
 function percent(value: number | undefined): string {
   return value === undefined ? '—' : `${(value * 100).toFixed(1)}%`
 }
 
-export function PolicyPanel({ rangeId, snapshot, runs, onReset, onReplay, canReplay, busy }: Props) {
+export function PolicyPanel({ rangeId, snapshot, runs, onReset, onReplay, canReplay, busy, collapsed = false, onToggle }: Props) {
   const range = snapshot?.ranges.find((entry) => entry.range_id === rangeId) ?? null
   const history = (snapshot?.history ?? []).filter(
     (entry) => entry.action === 'reset' || entry.range_id === rangeId,
@@ -42,7 +44,15 @@ export function PolicyPanel({ rangeId, snapshot, runs, onReset, onReplay, canRep
           simulated · v{snapshot?.version ?? '—'}
           {snapshot?.source ? ' · seeded from raw.json' : ' · no raw.json loaded'}
         </span>
+        {onToggle && (
+          <button type="button" className="secondary" onClick={onToggle} aria-expanded={!collapsed}>
+            {collapsed ? 'Show' : 'Hide'}
+          </button>
+        )}
       </header>
+
+      {collapsed ? null : (
+        <>
 
       {!range && <p className="empty">Pick a replay to see its range's policy.</p>}
 
@@ -152,6 +162,8 @@ export function PolicyPanel({ rangeId, snapshot, runs, onReset, onReplay, canRep
           Reset to raw.json
         </button>
       </div>
+        </>
+      )}
     </section>
   )
 }
